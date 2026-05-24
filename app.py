@@ -9,17 +9,9 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# =========================
-# OPENAI CLIENT
-# =========================
-
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY")
 )
-
-# =========================
-# LOAD FAISS DATABASE
-# =========================
 
 print("Loading FAISS index...")
 
@@ -29,10 +21,6 @@ with open("chunks.pkl", "rb") as f:
     chunks = pickle.load(f)
 
 print("FAISS Loaded Successfully")
-
-# =========================
-# CREATE EMBEDDING
-# =========================
 
 def create_embedding(text):
 
@@ -44,10 +32,6 @@ def create_embedding(text):
     embedding = response.data[0].embedding
 
     return np.array([embedding], dtype="float32")
-
-# =========================
-# SEARCH RELEVANT CHUNKS
-# =========================
 
 def search_chunks(question, top_k=5):
 
@@ -64,10 +48,6 @@ def search_chunks(question, top_k=5):
             results.append(chunks[i])
 
     return "\n\n".join(results)
-
-# =========================
-# CHAT API
-# =========================
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -135,18 +115,10 @@ Question:
             "response": str(e)
         })
 
-# =========================
-# ROOT ROUTE
-# =========================
-
 @app.route("/")
 def home():
 
     return "JhaGLC AI Backend Running"
-
-# =========================
-# RUN APP
-# =========================
 
 if __name__ == "__main__":
 
@@ -156,4 +128,3 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port
     )
-```
