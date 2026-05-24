@@ -155,11 +155,41 @@ Use the following labour law context to answer.
 {context}
 
 Instructions:
-- Give accurate labour law answer
-- Support Hindi and English
-- Mention sections if available
-- Give practical interpretation
-- Answer only from provided context
+
+1. Always answer in structured pointwise format
+
+2. Use headings and subheadings
+
+3. Mention:
+   - Relevant Section
+   - Relevant Rule
+   - Practical Meaning
+   - Key Provisions
+
+4. For Hindi questions:
+   - Answer in Hindi
+   - Use simple legal Hindi
+
+5. For English questions:
+   - Answer in professional legal English
+
+6. If applicable, compare:
+   - Central Rules
+   - Bihar Rules
+
+7. Prefer information from provided PDF context only
+
+8. If answer is not available in context, clearly say:
+   "Relevant provision not found in uploaded documents."
+
+9. Format answer like:
+
+• Provision
+• Explanation
+• Practical Impact
+• Compliance Requirement
+
+10. Keep answer well structured and readable
 
 """
 
