@@ -9,19 +9,24 @@ import os
 app = Flask(__name__)
 CORS(app)
 
+# OpenAI Client
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY")
 )
 
 print("Loading FAISS index...")
 
+# Load FAISS index
 index = faiss.read_index("faiss.index")
 
+# Load text chunks
 with open("chunks.pkl", "rb") as f:
     chunks = pickle.load(f)
 
 print("FAISS Loaded Successfully")
 
+
+# Create Embedding
 def create_embedding(text):
 
     response = client.embeddings.create(
@@ -33,6 +38,8 @@ def create_embedding(text):
 
     return np.array([embedding], dtype="float32")
 
+
+# Search Relevant Chunks
 def search_chunks(question, top_k=5):
 
     question_embedding = create_embedding(question)
@@ -49,6 +56,8 @@ def search_chunks(question, top_k=5):
 
     return "\n\n".join(results)
 
+
+# Chat API
 @app.route("/chat", methods=["POST"])
 def chat():
 
@@ -64,10 +73,12 @@ def chat():
 
     try:
 
+        # Get relevant legal text
         relevant_text = search_chunks(question)
 
+        # Prompt
         prompt = f"""
-You are an expert Labour Law AI assistant.
+You are an expert Indian Labour Law AI assistant.
 
 Instructions:
 1. Reply in the SAME language as the user's question.
@@ -77,19 +88,20 @@ Instructions:
 5. Use headings and numbering whenever possible.
 6. Explain legal provisions simply and accurately.
 7. Mention Section/Rule references if available.
-8. If answer is not available in documents, say:
+8. Keep answers well-structured and professional.
+9. If answer is not available in documents, say:
    "Answer not found in uploaded documents."
-9. Before giving answer read code or rule carefully
 
 User Question:
 {question}
 
 Relevant Legal Context:
-{context}
+{relevant_text}
 
 Now provide a structured answer.
 """
 
+        # GPT Response
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[
@@ -117,11 +129,15 @@ Now provide a structured answer.
             "response": str(e)
         })
 
+
+# Home Route
 @app.route("/")
 def home():
 
     return "JhaGLC AI Backend Running"
 
+
+# Run App
 if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 10000))
