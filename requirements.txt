@@ -4,3 +4,5 @@ openai
 gunicorn
 requests
 PyPDF2
+faiss-cpu
+numpy
