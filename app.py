@@ -1,22 +1,22 @@
 import os
 import requests
+import numpy as np
+import faiss
+
 from io import BytesIO
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 from openai import OpenAI
-
 from PyPDF2 import PdfReader
 
 app = Flask(__name__)
 CORS(app)
 
 client = OpenAI(
-    api_key=os.environ.get(\"OPENAI_API_KEY\")
+    api_key=os.environ.get("OPENAI_API_KEY")
 )
-
-# GOOGLE DRIVE PDF LINKS
 
 PDF_LINKS = [
 
@@ -46,9 +46,18 @@ PDF_LINKS = [
 
 ]
 
-# LOAD PDF TEXT
+all_chunks = []
 
-all_pdf_text = \"\"
+def split_text(text, chunk_size=1000):
+
+    chunks = []
+
+    for i in range(0, len(text), chunk_size):
+        chunks.append(text[i:i+chunk_size])
+
+    return chunks
+
+print("Loading PDFs...")
 
 for link in PDF_LINKS:
 
@@ -58,61 +67,116 @@ for link in PDF_LINKS:
 
         pdf = PdfReader(BytesIO(response.content))
 
-        text = \"\"
+        text = ""
 
         for page in pdf.pages:
-            text += page.extract_text()
 
-        all_pdf_text += text + \"\\n\\n\"
+            extracted = page.extract_text()
+
+            if extracted:
+                text += extracted
+
+        chunks = split_text(text)
+
+        all_chunks.extend(chunks)
+
+        print("PDF Loaded")
+
+    except Exception as e:
+        print(e)
+
+print("Creating embeddings...")
+
+embeddings = []
+
+for chunk in all_chunks:
+
+    try:
+
+        emb = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=chunk
+        )
+
+        vector = emb.data[0].embedding
+
+        embeddings.append(vector)
 
     except:
         pass
 
-SYSTEM_PROMPT = f\"\"\"
+embedding_matrix = np.array(embeddings).astype("float32")
+
+dimension = len(embedding_matrix[0])
+
+index = faiss.IndexFlatL2(dimension)
+
+index.add(embedding_matrix)
+
+print("FAISS Index Ready")
+
+@app.route("/")
+def home():
+    return "JhaGLC AI Smart PDF Search Running"
+
+@app.route("/chat", methods=["POST"])
+def chat():
+
+    data = request.json
+
+    question = data.get("message", "")
+
+    query_embedding = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=question
+    )
+
+    query_vector = np.array(
+        [query_embedding.data[0].embedding]
+    ).astype("float32")
+
+    D, I = index.search(query_vector, 5)
+
+    relevant_chunks = []
+
+    for idx in I[0]:
+        relevant_chunks.append(all_chunks[idx])
+
+    context = "\n\n".join(relevant_chunks)
+
+    SYSTEM_PROMPT = f"""
 
 You are JhaGLC AI.
 
 Your Intelligent Labour Law Assistant.
 
-Use the following labour law documents as primary knowledge source:
+Use the following labour law context to answer.
 
-{all_pdf_text[:120000]}
+{context}
 
 Instructions:
-- Answer only labour law related questions
+- Give accurate labour law answer
 - Support Hindi and English
-- Prefer information from uploaded PDFs
-- Explain clearly
-- Mention relevant legal provisions when possible
+- Mention sections if available
 - Give practical interpretation
+- Answer only from provided context
 
-\"\"\"
-
-@app.route(\"/\")
-def home():
-    return \"JhaGLC AI PDF Intelligence Running\"
-
-@app.route(\"/chat\", methods=[\"POST\"])
-def chat():
-
-    data = request.json
-
-    user_message = data.get(\"message\", \"\")
+"""
 
     completion = client.chat.completions.create(
 
-        model=\"gpt-4o-mini\",
+        model="gpt-4o-mini",
 
         messages=[
 
             {
-                \"role\": \"system\",
-                \"content\": SYSTEM_PROMPT
+                "role": "system",
+                "content": SYSTEM_PROMPT
             },
 
             {
-                \"role\": \"user\",
-                \"content\": user_message
+                "role": "user",
+                "content": question
             }
 
         ]
@@ -122,8 +186,8 @@ def chat():
     answer = completion.choices[0].message.content
 
     return jsonify({
-        \"response\": answer
+        "response": answer
     })
 
-if __name__ == \"__main__\":
-    app.run(host=\"0.0.0.0\", port=10000)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
