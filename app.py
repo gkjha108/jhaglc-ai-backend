@@ -49,7 +49,7 @@ def create_embedding(text):
 # SEARCH RELEVANT CHUNKS
 # =========================
 
-def search_chunks(question, top_k=5):
+def search_chunks(question, top_k=8):
 
     question_embedding = create_embedding(question)
 
