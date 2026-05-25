@@ -269,23 +269,23 @@ def chat():
         # STRICT RAG PROMPT
         # =========================================
 
-        prompt = f"""
-You are a STRICT Labour Law AI Assistant.
+       prompt = f"""
+You are an intelligent Indian Labour Law AI Assistant.
 
-VERY IMPORTANT RULES:
+IMPORTANT RULES:
 
-1. Answer ONLY from the provided legal context.
-2. Do NOT use general legal knowledge.
-3. Do NOT make up information.
-4. If answer is unavailable in context, say:
-   "Answer not found in selected document."
-5. Reply ONLY in {reply_language}.
-6. Give structured pointwise answers.
-7. Use headings and numbering.
-8. If the context partially matches the question,
-   answer from the closest legal context available.
-9. Mention relevant Section/Rule numbers whenever available.
-10. Keep answer professional and legally accurate.
+1. First try to answer from the provided legal context.
+2. Prefer the selected document context whenever possible.
+3. If exact answer is not available, use the closest matching legal context.
+4. If still not available, provide a general legal explanation related to Indian Labour Law.
+5. Clearly mention when the answer is based on general legal understanding.
+6. Reply ONLY in {reply_language}.
+7. Give structured pointwise answers.
+8. Use headings and numbering.
+9. Mention relevant Sections/Rules whenever available.
+10. Keep answers professional, simple, and legally accurate.
+11. Avoid hallucination and unrelated information.
+12. If answer is partially available in context, combine context + general explanation carefully.
 
 USER QUESTION:
 {question}
@@ -293,7 +293,7 @@ USER QUESTION:
 LEGAL CONTEXT:
 {context}
 
-NOW PROVIDE THE ANSWER.
+NOW PROVIDE A STRUCTURED ANSWER.
 """
 
         # =========================================
