@@ -9,24 +9,31 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# OpenAI Client
+# =========================
+# OPENAI CLIENT
+# =========================
+
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY")
 )
 
+# =========================
+# LOAD FAISS INDEX
+# =========================
+
 print("Loading FAISS index...")
 
-# Load FAISS index
 index = faiss.read_index("faiss.index")
 
-# Load text chunks
 with open("chunks.pkl", "rb") as f:
     chunks = pickle.load(f)
 
 print("FAISS Loaded Successfully")
 
+# =========================
+# CREATE EMBEDDING
+# =========================
 
-# Create Embedding
 def create_embedding(text):
 
     response = client.embeddings.create(
@@ -38,9 +45,11 @@ def create_embedding(text):
 
     return np.array([embedding], dtype="float32")
 
+# =========================
+# SEARCH RELEVANT CHUNKS
+# =========================
 
-# Search Relevant Chunks
-def search_chunks(question, top_k=5):
+def search_chunks(question, top_k=8):
 
     question_embedding = create_embedding(question)
 
@@ -54,10 +63,12 @@ def search_chunks(question, top_k=5):
 
             results.append(chunks[i])
 
-    return "\n\n".join(results)
+    return results
 
+# =========================
+# CHAT API
+# =========================
 
-# Chat API
 @app.route("/chat", methods=["POST"])
 def chat():
 
@@ -73,48 +84,68 @@ def chat():
 
     try:
 
-        # Get relevant legal text
-        relevant_text = search_chunks(question)
+        retrieved_chunks = search_chunks(question)
 
-        # Prompt
+        context = ""
+
+        sources = set()
+
+        for item in retrieved_chunks:
+
+            context += item["text"] + "\n\n"
+
+            sources.add(item["source"])
+
+        source_text = ", ".join(sources)
+
         prompt = f"""
 You are an expert Indian Labour Law AI assistant.
 
-Instructions:
+STRICT INSTRUCTIONS:
+
 1. Reply in the SAME language as the user's question.
 2. If user asks in English, answer in English.
 3. If user asks in Hindi, answer in Hindi.
-4. Give answers in clear pointwise format.
-5. Use headings and numbering whenever possible.
-6. Explain legal provisions simply and accurately.
-7. Mention Section/Rule references if available.
-8. Keep answers well-structured and professional.
-9. If answer is not available in documents, say:
-   "Answer not found in uploaded documents."
+4. Give answers in structured pointwise format.
+5. Use markdown headings, numbering, and bullets.
+6. Never give very long paragraphs.
+7. Mention exact legal provisions whenever available.
+8. Mention:
+   - Act name
+   - Rule number
+   - Section number
+   - Chapter if available
+9. Prefer exact wording from legal documents.
+10. Do not invent legal information.
+11. If exact answer is unavailable, clearly say so.
+12. Keep formatting clean and professional.
+13. Explain practical meaning in simple language.
 
 User Question:
 {question}
 
 Relevant Legal Context:
-{relevant_text}
+{context}
 
-Now provide a structured answer.
+Source Documents:
+{source_text}
+
+Now provide the best accurate legal answer.
 """
 
-        # GPT Response
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful Indian Labour Law AI assistant."
+                    "content": "You are a highly accurate Indian Labour Law AI assistant."
                 },
                 {
                     "role": "user",
                     "content": prompt
                 }
             ],
-            temperature=0.2
+            temperature=0.1
         )
 
         answer = response.choices[0].message.content
@@ -129,15 +160,19 @@ Now provide a structured answer.
             "response": str(e)
         })
 
+# =========================
+# HOME ROUTE
+# =========================
 
-# Home Route
 @app.route("/")
 def home():
 
     return "JhaGLC AI Backend Running"
 
+# =========================
+# RUN APP
+# =========================
 
-# Run App
 if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 10000))
