@@ -1,38 +1,143 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+
 from openai import OpenAI
+
 import faiss
 import pickle
 import numpy as np
 import os
 
+# =========================================================
+# FLASK
+# =========================================================
+
 app = Flask(__name__)
+
 CORS(app)
 
-# =========================
-# OPENAI CLIENT
-# =========================
+# =========================================================
+# OPENAI
+# =========================================================
 
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY")
 )
 
-# =========================
-# LOAD FAISS INDEX
-# =========================
+# =========================================================
+# INDEX FOLDER
+# =========================================================
 
-print("Loading FAISS index...")
+INDEX_FOLDER = "indexes"
 
-index = faiss.read_index("faiss.index")
+# =========================================================
+# CATEGORY MAP
+# =========================================================
 
-with open("chunks.pkl", "rb") as f:
-    chunks = pickle.load(f)
+CATEGORY_MAP = {
 
-print("FAISS Loaded Successfully")
+    # =====================================================
+    # LABOUR CODES
+    # =====================================================
 
-# =========================
-# CREATE EMBEDDING
-# =========================
+    "code_on_wages": "code_on_wages",
+    "industrial_relations_code": "industrial_relations_code",
+    "social_security_code": "social_security_code",
+    "oshwc_code": "oshwc_code",
+
+    # =====================================================
+    # CENTRAL RULES
+    # =====================================================
+
+    "central_rules_code_on_wages": "central_rules_code_on_wages",
+    "central_rules_industrial_relations": "central_rules_industrial_relations",
+    "central_rules_social_security": "central_rules_social_security",
+    "central_rules_oshwc": "central_rules_oshwc",
+
+    # =====================================================
+    # BIHAR RULES
+    # =====================================================
+
+    "bihar_rules_code_on_wages": "bihar_rules_code_on_wages",
+    "bihar_rules_industrial_relations": "bihar_rules_industrial_relations",
+    "bihar_rules_social_security": "bihar_rules_social_security",
+    "bihar_rules_oshwc": "bihar_rules_oshwc"
+}
+
+# =========================================================
+# ALIASES
+# =========================================================
+
+ALIASES = {
+
+    "osh": "oshwc",
+    "oshwc": "oshwc",
+    "occupational safety": "oshwc",
+
+    "ir": "industrial_relations",
+    "industrial relation": "industrial_relations",
+    "industrial relations": "industrial_relations",
+
+    "social security": "social_security",
+
+    "wages code": "code_on_wages",
+    "code on wage": "code_on_wages",
+    "code on wages": "code_on_wages",
+
+    "bihar wage rule": "bihar_rules_code_on_wages"
+}
+
+# =========================================================
+# LOAD ALL INDEXES
+# =========================================================
+
+indexes = {}
+chunks_data = {}
+
+print("\n===================================")
+print("LOADING ALL INDEXES")
+print("===================================\n")
+
+for category in CATEGORY_MAP.values():
+
+    try:
+
+        index_path = os.path.join(
+            INDEX_FOLDER,
+            f"{category}.index"
+        )
+
+        chunk_path = os.path.join(
+            INDEX_FOLDER,
+            f"{category}.pkl"
+        )
+
+        if os.path.exists(index_path) and os.path.exists(chunk_path):
+
+            indexes[category] = faiss.read_index(index_path)
+
+            with open(chunk_path, "rb") as f:
+
+                chunks_data[category] = pickle.load(f)
+
+            print(f"Loaded: {category}")
+
+        else:
+
+            print(f"Missing: {category}")
+
+    except Exception as e:
+
+        print(f"ERROR loading {category}")
+        print(str(e))
+
+print("\n===================================")
+print("ALL INDEXES LOADED")
+print("===================================\n")
+
+# =========================================================
+# EMBEDDING
+# =========================================================
 
 def create_embedding(text):
 
@@ -45,11 +150,19 @@ def create_embedding(text):
 
     return np.array([embedding], dtype="float32")
 
-# =========================
-# SEARCH RELEVANT CHUNKS
-# =========================
+# =========================================================
+# SEARCH INDEX
+# =========================================================
 
-def search_chunks(question, top_k=8):
+def search_index(question, category, top_k=8):
+
+    if category not in indexes:
+
+        return "No index found."
+
+    index = indexes[category]
+
+    chunks = chunks_data[category]
 
     question_embedding = create_embedding(question)
 
@@ -63,92 +176,152 @@ def search_chunks(question, top_k=8):
 
             results.append(chunks[i])
 
-    return results
+    return "\n\n".join(results)
 
-# =========================
+# =========================================================
+# SEARCH ALL
+# =========================================================
+
+def search_all(question):
+
+    combined = ""
+
+    for category in indexes.keys():
+
+        result = search_index(question, category, top_k=3)
+
+        combined += result + "\n\n"
+
+    return combined
+
+# =========================================================
+# FORMAT ANSWER
+# =========================================================
+
+def generate_answer(question, context, language):
+
+    context = context[:6000]
+
+    if language == "hindi":
+
+        language_instruction = """
+Reply ONLY in Hindi.
+Use simple legal Hindi.
+Use pointwise format.
+Use headings.
+"""
+
+    else:
+
+        language_instruction = """
+Reply ONLY in English.
+Use professional legal English.
+Use pointwise format.
+Use headings.
+"""
+
+    prompt = f"""
+You are an expert Indian Labour Law AI Assistant.
+
+{language_instruction}
+
+IMPORTANT INSTRUCTIONS:
+
+1. Give structured answers.
+2. Use proper headings.
+3. Use numbering.
+4. Mention Section/Rule references.
+5. Explain simply.
+6. Avoid unnecessary repetition.
+7. Use legal drafting style.
+8. If answer is unavailable say:
+   "Answer not found in uploaded documents."
+
+USER QUESTION:
+{question}
+
+LEGAL CONTEXT:
+{context}
+
+NOW GENERATE THE BEST ANSWER.
+"""
+
+    response = client.chat.completions.create(
+
+        model="gpt-4.1-mini",
+
+        messages=[
+            {
+                "role": "system",
+                "content": "You are an Indian Labour Law Expert."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+
+        temperature=0.2
+    )
+
+    return response.choices[0].message.content
+
+# =========================================================
 # CHAT API
-# =========================
+# =========================================================
 
 @app.route("/chat", methods=["POST"])
 def chat():
 
-    data = request.json
-
-    question = data.get("message", "")
-
-    if not question:
-
-        return jsonify({
-            "response": "Please ask a question."
-        })
-
     try:
 
-        retrieved_chunks = search_chunks(question)
+        data = request.json
 
-        context = ""
+        question = data.get("message", "")
 
-        sources = set()
+        category = data.get("category", "all")
 
-        for item in retrieved_chunks:
+        language = data.get("language", "english")
 
-            context += item["text"] + "\n\n"
+        if not question:
 
-            sources.add(item["source"])
+            return jsonify({
+                "response": "Please ask a question."
+            })
 
-        source_text = ", ".join(sources)
+        # =================================================
+        # AUTO ALIAS DETECTION
+        # =================================================
 
-        prompt = f"""
-You are an expert Indian Labour Law AI assistant.
+        lower_question = question.lower()
 
-STRICT INSTRUCTIONS:
+        for alias, actual in ALIASES.items():
 
-1. Reply in the SAME language as the user's question.
-2. If user asks in English, answer in English.
-3. If user asks in Hindi, answer in Hindi.
-4. Give answers in structured pointwise format.
-5. Use markdown headings, numbering, and bullets.
-6. Never give very long paragraphs.
-7. Mention exact legal provisions whenever available.
-8. Mention:
-   - Act name
-   - Rule number
-   - Section number
-   - Chapter if available
-9. Prefer exact wording from legal documents.
-10. Do not invent legal information.
-11. If exact answer is unavailable, clearly say so.
-12. Keep formatting clean and professional.
-13. Explain practical meaning in simple language.
+            if alias in lower_question:
 
-User Question:
-{question}
+                lower_question += " " + actual
 
-Relevant Legal Context:
-{context}
+        # =================================================
+        # SEARCH
+        # =================================================
 
-Source Documents:
-{source_text}
+        if category == "all":
 
-Now provide the best accurate legal answer.
-"""
+            context = search_all(question)
 
-        response = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a highly accurate Indian Labour Law AI assistant."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            temperature=0.1
+        else:
+
+            context = search_index(question, category)
+
+        # =================================================
+        # GENERATE ANSWER
+        # =================================================
+
+        answer = generate_answer(
+            question,
+            context,
+            language
         )
-
-        answer = response.choices[0].message.content
 
         return jsonify({
             "response": answer
@@ -160,18 +333,18 @@ Now provide the best accurate legal answer.
             "response": str(e)
         })
 
-# =========================
-# HOME ROUTE
-# =========================
+# =========================================================
+# HOME
+# =========================================================
 
 @app.route("/")
 def home():
 
-    return "JhaGLC AI Backend Running"
+    return "JhaGLC AI Multi-Index Backend Running"
 
-# =========================
-# RUN APP
-# =========================
+# =========================================================
+# RUN
+# =========================================================
 
 if __name__ == "__main__":
 
