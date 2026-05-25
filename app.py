@@ -93,7 +93,7 @@ for key in DOCUMENT_MAP:
     try:
 
         index_path = f"{INDEX_FOLDER}/{key}.index"
-        chunk_path = f"{INDEX_FOLDER}/{key}_chunks.pkl"
+        chunk_path = f"{INDEX_FOLDER}/{key}.pkl"
 
         index = faiss.read_index(index_path)
 
