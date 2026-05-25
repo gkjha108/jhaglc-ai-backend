@@ -6,90 +6,83 @@ import pickle
 import numpy as np
 import os
 
-# =====================================================
+# =========================================
 # FLASK SETUP
-# =====================================================
+# =========================================
 
 app = Flask(__name__)
 CORS(app)
 
-# =====================================================
+# =========================================
 # OPENAI CLIENT
-# =====================================================
+# =========================================
 
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY")
 )
 
-# =====================================================
+# =========================================
 # INDEX FOLDER
-# =====================================================
+# =========================================
 
 INDEX_FOLDER = "indexes"
 
-# =====================================================
+# =========================================
 # DOCUMENT MAP
-# =====================================================
+# =========================================
 
 DOCUMENT_MAP = {
 
-    # =========================================
     # LABOUR CODES
-    # =========================================
 
-    "code_on_wages":
-        "Code on Wages",
+    "code_on_wages": "code_on_wages",
 
     "industrial_relations_code":
-        "Industrial Relations Code",
+        "industrial_relations_code",
 
     "social_security_code":
-        "Social Security Code",
+        "social_security_code",
 
     "oshwc_code":
-        "OSHWC Code",
+        "oshwc_code",
 
-    # =========================================
     # CENTRAL RULES
-    # =========================================
 
     "central_rules_code_on_wages":
-        "Central Rules - Code on Wages",
+        "central_rules_code_on_wages",
 
     "central_rules_industrial_relations":
-        "Central Rules - Industrial Relations",
+        "central_rules_industrial_relations",
 
     "central_rules_social_security":
-        "Central Rules - Social Security",
+        "central_rules_social_security",
 
     "central_rules_oshwc":
-        "Central Rules - OSHWC",
+        "central_rules_oshwc",
 
-    # =========================================
     # BIHAR RULES
-    # =========================================
 
     "bihar_rules_code_on_wages":
-        "Bihar Rules - Code on Wages",
+        "bihar_rules_code_on_wages",
 
     "bihar_rules_industrial_relations":
-        "Bihar Rules - Industrial Relations",
+        "bihar_rules_industrial_relations",
 
     "bihar_rules_social_security":
-        "Bihar Rules - Social Security",
+        "bihar_rules_social_security",
 
     "bihar_rules_oshwc":
-        "Bihar Rules - OSHWC"
+        "bihar_rules_oshwc"
 }
 
-# =====================================================
+# =========================================
 # LOAD ALL INDEXES
-# =====================================================
+# =========================================
 
 indexes = {}
 
 print("===================================")
-print("LOADING ALL INDEXES...")
+print("LOADING ALL INDEXES")
 print("===================================")
 
 for key in DOCUMENT_MAP:
@@ -97,15 +90,19 @@ for key in DOCUMENT_MAP:
     try:
 
         index_path = f"{INDEX_FOLDER}/{key}.index"
+
         chunk_path = f"{INDEX_FOLDER}/{key}.pkl"
 
         index = faiss.read_index(index_path)
 
         with open(chunk_path, "rb") as f:
+
             chunks = pickle.load(f)
 
         indexes[key] = {
+
             "index": index,
+
             "chunks": chunks
         }
 
@@ -119,14 +116,16 @@ print("===================================")
 print("ALL INDEXES READY")
 print("===================================")
 
-# =====================================================
+# =========================================
 # CREATE EMBEDDING
-# =====================================================
+# =========================================
 
 def create_embedding(text):
 
     response = client.embeddings.create(
+
         model="text-embedding-3-small",
+
         input=text
     )
 
@@ -134,69 +133,32 @@ def create_embedding(text):
 
     return np.array([embedding], dtype="float32")
 
-# =====================================================
+# =========================================
 # SEARCH SINGLE DOCUMENT
-# =====================================================
+# =========================================
 
-def search_document(question, document_key, top_k=15):
+def search_document(question, document_key, top_k=8):
 
     if document_key not in indexes:
 
         return ""
 
-    data = indexes[document_key]
+    try:
 
-    index = data["index"]
-    chunks = data["chunks"]
-
-    question_embedding = create_embedding(question)
-
-    distances, indices = index.search(question_embedding, top_k)
-
-    question_lower = question.lower()
-
-    results = []
-
-    for i in indices[0]:
-
-        if i < len(chunks):
-
-            chunk = chunks[i]
-
-            # =================================
-            # KEYWORD BOOST
-            # =================================
-
-            if any(word in chunk.lower() for word in question_lower.split()):
-
-                results.insert(0, chunk)
-
-            else:
-
-                results.append(chunk)
-
-    return "\n\n".join(results)
-
-# =====================================================
-# SEARCH ALL DOCUMENTS
-# =====================================================
-
-def search_all_documents(question, top_k=10):
-
-    all_results = []
-
-    for key in indexes:
-
-        data = indexes[key]
+        data = indexes[document_key]
 
         index = data["index"]
+
         chunks = data["chunks"]
 
         question_embedding = create_embedding(question)
 
-        distances, indices = index.search(question_embedding, top_k)
+        distances, indices = index.search(
+            question_embedding,
+            top_k
+        )
 
-        question_lower = question.lower()
+        results = []
 
         for i in indices[0]:
 
@@ -204,19 +166,72 @@ def search_all_documents(question, top_k=10):
 
                 chunk = chunks[i]
 
-                if any(word in chunk.lower() for word in question_lower.split()):
+                # OPTIONAL STRICT FILTER
 
-                    all_results.insert(0, chunk)
+                if any(
+                    word.lower() in chunk.lower()
+                    for word in question.split()
+                ):
 
-                else:
+                    results.append(chunk)
 
-                    all_results.append(chunk)
+        return "\n\n".join(results)
 
-    return "\n\n".join(all_results[:20])
+    except Exception as e:
 
-# =====================================================
+        print("SEARCH ERROR:", e)
+
+        return ""
+
+# =========================================
+# SEARCH ALL DOCUMENTS
+# =========================================
+
+def search_all_documents(question, top_k=5):
+
+    all_results = []
+
+    for key in indexes:
+
+        try:
+
+            data = indexes[key]
+
+            index = data["index"]
+
+            chunks = data["chunks"]
+
+            question_embedding = create_embedding(question)
+
+            distances, indices = index.search(
+                question_embedding,
+                top_k
+            )
+
+            for i in indices[0]:
+
+                if i < len(chunks):
+
+                    all_results.append(chunks[i])
+
+        except:
+
+            pass
+
+    return "\n\n".join(all_results)
+
+# =========================================
+# HOME ROUTE
+# =========================================
+
+@app.route("/")
+def home():
+
+    return "JhaGLC AI Running Successfully"
+
+# =========================================
 # CHAT ROUTE
-# =====================================================
+# =========================================
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -226,8 +241,16 @@ def chat():
         data = request.json
 
         question = data.get("message", "")
+
         document = data.get("document", "all")
+
         language = data.get("language", "english")
+
+        print("===================================")
+        print("QUESTION:", question)
+        print("DOCUMENT:", document)
+        print("LANGUAGE:", language)
+        print("===================================")
 
         if not question:
 
@@ -245,7 +268,10 @@ def chat():
 
         else:
 
-            context = search_document(question, document)
+            context = search_document(
+                question,
+                document
+            )
 
         # =========================================
         # CONTEXT LIMIT
@@ -266,10 +292,10 @@ def chat():
             reply_language = "English"
 
         # =========================================
-        # STRICT RAG PROMPT
+        # PROMPT
         # =========================================
 
-       prompt = f"""
+        prompt = f"""
 You are an intelligent Indian Labour Law AI Assistant.
 
 IMPORTANT RULES:
@@ -297,54 +323,63 @@ NOW PROVIDE A STRUCTURED ANSWER.
 """
 
         # =========================================
-        # GPT RESPONSE
+        # OPENAI RESPONSE
         # =========================================
 
         response = client.chat.completions.create(
+
             model="gpt-4.1-mini",
+
             messages=[
+
                 {
                     "role": "system",
-                    "content": "You are a professional Indian Labour Law AI Assistant."
+
+                    "content":
+                        "You are a professional Labour Law AI Assistant."
                 },
+
                 {
                     "role": "user",
+
                     "content": prompt
                 }
             ],
-            temperature=0.1
+
+            temperature=0.2
         )
 
         answer = response.choices[0].message.content
 
+        # =========================================
+        # RESPONSE
+        # =========================================
+
         return jsonify({
+
             "response": answer
         })
 
     except Exception as e:
 
+        print("ERROR:", str(e))
+
         return jsonify({
+
             "response": str(e)
         })
 
-# =====================================================
-# HOME ROUTE
-# =====================================================
-
-@app.route("/")
-def home():
-
-    return "JhaGLC AI Backend Running Successfully"
-
-# =====================================================
-# RUN APP
-# =====================================================
+# =========================================
+# MAIN
+# =========================================
 
 if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 10000))
 
     app.run(
+
         host="0.0.0.0",
+
         port=port
     )
