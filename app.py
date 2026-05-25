@@ -312,6 +312,12 @@ IMPORTANT RULES:
 10. Keep answers professional, simple, and legally accurate.
 11. Avoid hallucination and unrelated information.
 12. If answer is partially available in context, combine context + general explanation carefully.
+13. NEVER use generic titles like "Indian Labour Law".
+14. Always mention the selected Code/Rule name in heading.
+15. Mention exact Section/Rule numbers whenever available.
+16. Do NOT use markdown symbols like ### or **.
+17. Return clean plain text formatting only.
+18. Use professional legal formatting.
 
 USER QUESTION:
 {question}
