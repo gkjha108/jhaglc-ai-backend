@@ -6,38 +6,36 @@ import pickle
 import numpy as np
 import os
 
-# =========================================================
-# FLASK APP
-# =========================================================
+# =====================================================
+# FLASK SETUP
+# =====================================================
 
 app = Flask(__name__)
 CORS(app)
 
-# =========================================================
+# =====================================================
 # OPENAI CLIENT
-# =========================================================
+# =====================================================
 
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY")
 )
 
-# =========================================================
-# LOAD ALL INDEXES
-# =========================================================
-
-print("===================================")
-print("LOADING ALL INDEXES...")
-print("===================================")
+# =====================================================
+# INDEX FOLDER
+# =====================================================
 
 INDEX_FOLDER = "indexes"
 
-indexes = {}
+# =====================================================
+# DOCUMENT MAP
+# =====================================================
 
 DOCUMENT_MAP = {
 
-    # =====================================================
+    # =========================================
     # LABOUR CODES
-    # =====================================================
+    # =========================================
 
     "code_on_wages":
         "Code on Wages",
@@ -51,9 +49,9 @@ DOCUMENT_MAP = {
     "oshwc_code":
         "OSHWC Code",
 
-    # =====================================================
+    # =========================================
     # CENTRAL RULES
-    # =====================================================
+    # =========================================
 
     "central_rules_code_on_wages":
         "Central Rules - Code on Wages",
@@ -67,9 +65,9 @@ DOCUMENT_MAP = {
     "central_rules_oshwc":
         "Central Rules - OSHWC",
 
-    # =====================================================
+    # =========================================
     # BIHAR RULES
-    # =====================================================
+    # =========================================
 
     "bihar_rules_code_on_wages":
         "Bihar Rules - Code on Wages",
@@ -84,9 +82,15 @@ DOCUMENT_MAP = {
         "Bihar Rules - OSHWC"
 }
 
-# =========================================================
-# LOAD EACH INDEX
-# =========================================================
+# =====================================================
+# LOAD ALL INDEXES
+# =====================================================
+
+indexes = {}
+
+print("===================================")
+print("LOADING ALL INDEXES...")
+print("===================================")
 
 for key in DOCUMENT_MAP:
 
@@ -115,9 +119,9 @@ print("===================================")
 print("ALL INDEXES READY")
 print("===================================")
 
-# =========================================================
+# =====================================================
 # CREATE EMBEDDING
-# =========================================================
+# =====================================================
 
 def create_embedding(text):
 
@@ -130,21 +134,26 @@ def create_embedding(text):
 
     return np.array([embedding], dtype="float32")
 
-# =========================================================
+# =====================================================
 # SEARCH SINGLE DOCUMENT
-# =========================================================
+# =====================================================
 
-def search_single_document(question, document_key, top_k=8):
+def search_document(question, document_key, top_k=15):
 
     if document_key not in indexes:
+
         return ""
 
-    index = indexes[document_key]["index"]
-    chunks = indexes[document_key]["chunks"]
+    data = indexes[document_key]
+
+    index = data["index"]
+    chunks = data["chunks"]
 
     question_embedding = create_embedding(question)
 
     distances, indices = index.search(question_embedding, top_k)
+
+    question_lower = question.lower()
 
     results = []
 
@@ -152,46 +161,62 @@ def search_single_document(question, document_key, top_k=8):
 
         if i < len(chunks):
 
-            results.append(chunks[i])
+            chunk = chunks[i]
+
+            # =================================
+            # KEYWORD BOOST
+            # =================================
+
+            if any(word in chunk.lower() for word in question_lower.split()):
+
+                results.insert(0, chunk)
+
+            else:
+
+                results.append(chunk)
 
     return "\n\n".join(results)
 
-# =========================================================
+# =====================================================
 # SEARCH ALL DOCUMENTS
-# =========================================================
+# =====================================================
 
-def search_all_documents(question, top_k=5):
+def search_all_documents(question, top_k=10):
 
     all_results = []
 
-    question_embedding = create_embedding(question)
-
     for key in indexes:
 
-        try:
+        data = indexes[key]
 
-            index = indexes[key]["index"]
-            chunks = indexes[key]["chunks"]
+        index = data["index"]
+        chunks = data["chunks"]
 
-            distances, indices = index.search(
-                question_embedding,
-                top_k
-            )
+        question_embedding = create_embedding(question)
 
-            for i in indices[0]:
+        distances, indices = index.search(question_embedding, top_k)
 
-                if i < len(chunks):
+        question_lower = question.lower()
 
-                    all_results.append(chunks[i])
+        for i in indices[0]:
 
-        except:
-            pass
+            if i < len(chunks):
 
-    return "\n\n".join(all_results)
+                chunk = chunks[i]
 
-# =========================================================
-# CHAT API
-# =========================================================
+                if any(word in chunk.lower() for word in question_lower.split()):
+
+                    all_results.insert(0, chunk)
+
+                else:
+
+                    all_results.append(chunk)
+
+    return "\n\n".join(all_results[:20])
+
+# =====================================================
+# CHAT ROUTE
+# =====================================================
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -200,15 +225,9 @@ def chat():
 
         data = request.json
 
-        question = data.get("message", "").strip()
-
-        language = data.get("language", "English")
-
+        question = data.get("message", "")
         document = data.get("document", "all")
-
-        # =================================================
-        # EMPTY QUESTION
-        # =================================================
+        language = data.get("language", "english")
 
         if not question:
 
@@ -216,9 +235,9 @@ def chat():
                 "response": "Please ask a question."
             })
 
-        # =================================================
-        # DOCUMENT SEARCH
-        # =================================================
+        # =========================================
+        # SEARCH CONTEXT
+        # =========================================
 
         if document == "all":
 
@@ -226,31 +245,17 @@ def chat():
 
         else:
 
-            context = search_single_document(
-                question,
-                document
-            )
+            context = search_document(question, document)
 
-        # =================================================
+        # =========================================
         # CONTEXT LIMIT
-        # =================================================
+        # =========================================
 
         context = context[:6000]
 
-        # =================================================
-        # NO RESULT
-        # =================================================
-
-        if not context.strip():
-
-            return jsonify({
-                "response":
-                "Answer not found in selected document."
-            })
-
-        # =================================================
+        # =========================================
         # LANGUAGE
-        # =================================================
+        # =========================================
 
         if language.lower() == "hindi":
 
@@ -260,9 +265,9 @@ def chat():
 
             reply_language = "English"
 
-        # =================================================
+        # =========================================
         # STRICT RAG PROMPT
-        # =================================================
+        # =========================================
 
         prompt = f"""
 You are a STRICT Labour Law AI Assistant.
@@ -277,9 +282,10 @@ VERY IMPORTANT RULES:
 5. Reply ONLY in {reply_language}.
 6. Give structured pointwise answers.
 7. Use headings and numbering.
-8. Mention exact Section / Rule references.
-9. Keep answer professional and accurate.
-10. Explain in simple language.
+8. If the context partially matches the question,
+   answer from the closest legal context available.
+9. Mention relevant Section/Rule numbers whenever available.
+10. Keep answer professional and legally accurate.
 
 USER QUESTION:
 {question}
@@ -287,39 +293,29 @@ USER QUESTION:
 LEGAL CONTEXT:
 {context}
 
-NOW GIVE THE FINAL ANSWER.
+NOW PROVIDE THE ANSWER.
 """
 
-        # =================================================
+        # =========================================
         # GPT RESPONSE
-        # =================================================
+        # =========================================
 
         response = client.chat.completions.create(
-
             model="gpt-4.1-mini",
-
             messages=[
-
                 {
                     "role": "system",
-                    "content":
-                    "You are an expert Indian Labour Law Assistant."
+                    "content": "You are a professional Indian Labour Law AI Assistant."
                 },
-
                 {
                     "role": "user",
                     "content": prompt
                 }
             ],
-
             temperature=0.1
         )
 
         answer = response.choices[0].message.content
-
-        # =================================================
-        # FINAL RESPONSE
-        # =================================================
 
         return jsonify({
             "response": answer
@@ -331,18 +327,18 @@ NOW GIVE THE FINAL ANSWER.
             "response": str(e)
         })
 
-# =========================================================
-# HOME
-# =========================================================
+# =====================================================
+# HOME ROUTE
+# =====================================================
 
 @app.route("/")
 def home():
 
     return "JhaGLC AI Backend Running Successfully"
 
-# =========================================================
+# =====================================================
 # RUN APP
-# =========================================================
+# =====================================================
 
 if __name__ == "__main__":
 
