@@ -1,23 +1,20 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-
 from openai import OpenAI
-
 import faiss
 import pickle
 import numpy as np
 import os
 
 # =========================================================
-# FLASK
+# FLASK APP
 # =========================================================
 
 app = Flask(__name__)
-
 CORS(app)
 
 # =========================================================
-# OPENAI
+# OPENAI CLIENT
 # =========================================================
 
 client = OpenAI(
@@ -25,118 +22,101 @@ client = OpenAI(
 )
 
 # =========================================================
-# INDEX FOLDER
+# LOAD ALL INDEXES
 # =========================================================
+
+print("===================================")
+print("LOADING ALL INDEXES...")
+print("===================================")
 
 INDEX_FOLDER = "indexes"
 
-# =========================================================
-# CATEGORY MAP
-# =========================================================
+indexes = {}
 
-CATEGORY_MAP = {
+DOCUMENT_MAP = {
 
     # =====================================================
     # LABOUR CODES
     # =====================================================
 
-    "code_on_wages": "code_on_wages",
-    "industrial_relations_code": "industrial_relations_code",
-    "social_security_code": "social_security_code",
-    "oshwc_code": "oshwc_code",
+    "code_on_wages":
+        "Code on Wages",
+
+    "industrial_relations_code":
+        "Industrial Relations Code",
+
+    "social_security_code":
+        "Social Security Code",
+
+    "oshwc_code":
+        "OSHWC Code",
 
     # =====================================================
     # CENTRAL RULES
     # =====================================================
 
-    "central_rules_code_on_wages": "central_rules_code_on_wages",
-    "central_rules_industrial_relations": "central_rules_industrial_relations",
-    "central_rules_social_security": "central_rules_social_security",
-    "central_rules_oshwc": "central_rules_oshwc",
+    "central_rules_code_on_wages":
+        "Central Rules - Code on Wages",
+
+    "central_rules_industrial_relations":
+        "Central Rules - Industrial Relations",
+
+    "central_rules_social_security":
+        "Central Rules - Social Security",
+
+    "central_rules_oshwc":
+        "Central Rules - OSHWC",
 
     # =====================================================
     # BIHAR RULES
     # =====================================================
 
-    "bihar_rules_code_on_wages": "bihar_rules_code_on_wages",
-    "bihar_rules_industrial_relations": "bihar_rules_industrial_relations",
-    "bihar_rules_social_security": "bihar_rules_social_security",
-    "bihar_rules_oshwc": "bihar_rules_oshwc"
+    "bihar_rules_code_on_wages":
+        "Bihar Rules - Code on Wages",
+
+    "bihar_rules_industrial_relations":
+        "Bihar Rules - Industrial Relations",
+
+    "bihar_rules_social_security":
+        "Bihar Rules - Social Security",
+
+    "bihar_rules_oshwc":
+        "Bihar Rules - OSHWC"
 }
 
 # =========================================================
-# ALIASES
+# LOAD EACH INDEX
 # =========================================================
 
-ALIASES = {
-
-    "osh": "oshwc",
-    "oshwc": "oshwc",
-    "occupational safety": "oshwc",
-
-    "ir": "industrial_relations",
-    "industrial relation": "industrial_relations",
-    "industrial relations": "industrial_relations",
-
-    "social security": "social_security",
-
-    "wages code": "code_on_wages",
-    "code on wage": "code_on_wages",
-    "code on wages": "code_on_wages",
-
-    "bihar wage rule": "bihar_rules_code_on_wages"
-}
-
-# =========================================================
-# LOAD ALL INDEXES
-# =========================================================
-
-indexes = {}
-chunks_data = {}
-
-print("\n===================================")
-print("LOADING ALL INDEXES")
-print("===================================\n")
-
-for category in CATEGORY_MAP.values():
+for key in DOCUMENT_MAP:
 
     try:
 
-        index_path = os.path.join(
-            INDEX_FOLDER,
-            f"{category}.index"
-        )
+        index_path = f"{INDEX_FOLDER}/{key}.index"
+        chunk_path = f"{INDEX_FOLDER}/{key}_chunks.pkl"
 
-        chunk_path = os.path.join(
-            INDEX_FOLDER,
-            f"{category}.pkl"
-        )
+        index = faiss.read_index(index_path)
 
-        if os.path.exists(index_path) and os.path.exists(chunk_path):
+        with open(chunk_path, "rb") as f:
+            chunks = pickle.load(f)
 
-            indexes[category] = faiss.read_index(index_path)
+        indexes[key] = {
+            "index": index,
+            "chunks": chunks
+        }
 
-            with open(chunk_path, "rb") as f:
-
-                chunks_data[category] = pickle.load(f)
-
-            print(f"Loaded: {category}")
-
-        else:
-
-            print(f"Missing: {category}")
+        print(f"Loaded: {key}")
 
     except Exception as e:
 
-        print(f"ERROR loading {category}")
-        print(str(e))
+        print(f"ERROR loading {key}: {e}")
 
-print("\n===================================")
-print("ALL INDEXES LOADED")
-print("===================================\n")
+print("===================================")
+print("ALL INDEXES READY")
+print("===================================")
 
 # =========================================================
-# EMBEDDING
+# CREATE EMBEDDING
 # =========================================================
 
 def create_embedding(text):
@@ -151,18 +131,16 @@ def create_embedding(text):
     return np.array([embedding], dtype="float32")
 
 # =========================================================
-# SEARCH INDEX
+# SEARCH SINGLE DOCUMENT
 # =========================================================
 
-def search_index(question, category, top_k=8):
+def search_single_document(question, document_key, top_k=8):
 
-    if category not in indexes:
+    if document_key not in indexes:
+        return ""
 
-        return "No index found."
-
-    index = indexes[category]
-
-    chunks = chunks_data[category]
+    index = indexes[document_key]["index"]
+    chunks = indexes[document_key]["chunks"]
 
     question_embedding = create_embedding(question)
 
@@ -179,92 +157,37 @@ def search_index(question, category, top_k=8):
     return "\n\n".join(results)
 
 # =========================================================
-# SEARCH ALL
+# SEARCH ALL DOCUMENTS
 # =========================================================
 
-def search_all(question):
+def search_all_documents(question, top_k=5):
 
-    combined = ""
+    all_results = []
 
-    for category in indexes.keys():
+    question_embedding = create_embedding(question)
 
-        result = search_index(question, category, top_k=3)
+    for key in indexes:
 
-        combined += result + "\n\n"
+        try:
 
-    return combined
+            index = indexes[key]["index"]
+            chunks = indexes[key]["chunks"]
 
-# =========================================================
-# FORMAT ANSWER
-# =========================================================
+            distances, indices = index.search(
+                question_embedding,
+                top_k
+            )
 
-def generate_answer(question, context, language):
+            for i in indices[0]:
 
-    context = context[:6000]
+                if i < len(chunks):
 
-    if language == "hindi":
+                    all_results.append(chunks[i])
 
-        language_instruction = """
-Reply ONLY in Hindi.
-Use simple legal Hindi.
-Use pointwise format.
-Use headings.
-"""
+        except:
+            pass
 
-    else:
-
-        language_instruction = """
-Reply ONLY in English.
-Use professional legal English.
-Use pointwise format.
-Use headings.
-"""
-
-    prompt = f"""
-You are an expert Indian Labour Law AI Assistant.
-
-{language_instruction}
-
-IMPORTANT INSTRUCTIONS:
-
-1. Give structured answers.
-2. Use proper headings.
-3. Use numbering.
-4. Mention Section/Rule references.
-5. Explain simply.
-6. Avoid unnecessary repetition.
-7. Use legal drafting style.
-8. If answer is unavailable say:
-   "Answer not found in uploaded documents."
-
-USER QUESTION:
-{question}
-
-LEGAL CONTEXT:
-{context}
-
-NOW GENERATE THE BEST ANSWER.
-"""
-
-    response = client.chat.completions.create(
-
-        model="gpt-4.1-mini",
-
-        messages=[
-            {
-                "role": "system",
-                "content": "You are an Indian Labour Law Expert."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-
-        temperature=0.2
-    )
-
-    return response.choices[0].message.content
+    return "\n\n".join(all_results)
 
 # =========================================================
 # CHAT API
@@ -277,11 +200,15 @@ def chat():
 
         data = request.json
 
-        question = data.get("message", "")
+        question = data.get("message", "").strip()
 
-        category = data.get("category", "all")
+        language = data.get("language", "English")
 
-        language = data.get("language", "english")
+        document = data.get("document", "all")
+
+        # =================================================
+        # EMPTY QUESTION
+        # =================================================
 
         if not question:
 
@@ -290,38 +217,109 @@ def chat():
             })
 
         # =================================================
-        # AUTO ALIAS DETECTION
+        # DOCUMENT SEARCH
         # =================================================
 
-        lower_question = question.lower()
+        if document == "all":
 
-        for alias, actual in ALIASES.items():
-
-            if alias in lower_question:
-
-                lower_question += " " + actual
-
-        # =================================================
-        # SEARCH
-        # =================================================
-
-        if category == "all":
-
-            context = search_all(question)
+            context = search_all_documents(question)
 
         else:
 
-            context = search_index(question, category)
+            context = search_single_document(
+                question,
+                document
+            )
 
         # =================================================
-        # GENERATE ANSWER
+        # CONTEXT LIMIT
         # =================================================
 
-        answer = generate_answer(
-            question,
-            context,
-            language
+        context = context[:6000]
+
+        # =================================================
+        # NO RESULT
+        # =================================================
+
+        if not context.strip():
+
+            return jsonify({
+                "response":
+                "Answer not found in selected document."
+            })
+
+        # =================================================
+        # LANGUAGE
+        # =================================================
+
+        if language.lower() == "hindi":
+
+            reply_language = "Hindi"
+
+        else:
+
+            reply_language = "English"
+
+        # =================================================
+        # STRICT RAG PROMPT
+        # =================================================
+
+        prompt = f"""
+You are a STRICT Labour Law AI Assistant.
+
+VERY IMPORTANT RULES:
+
+1. Answer ONLY from the provided legal context.
+2. Do NOT use general legal knowledge.
+3. Do NOT make up information.
+4. If answer is unavailable in context, say:
+   "Answer not found in selected document."
+5. Reply ONLY in {reply_language}.
+6. Give structured pointwise answers.
+7. Use headings and numbering.
+8. Mention exact Section / Rule references.
+9. Keep answer professional and accurate.
+10. Explain in simple language.
+
+USER QUESTION:
+{question}
+
+LEGAL CONTEXT:
+{context}
+
+NOW GIVE THE FINAL ANSWER.
+"""
+
+        # =================================================
+        # GPT RESPONSE
+        # =================================================
+
+        response = client.chat.completions.create(
+
+            model="gpt-4.1-mini",
+
+            messages=[
+
+                {
+                    "role": "system",
+                    "content":
+                    "You are an expert Indian Labour Law Assistant."
+                },
+
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+
+            temperature=0.1
         )
+
+        answer = response.choices[0].message.content
+
+        # =================================================
+        # FINAL RESPONSE
+        # =================================================
 
         return jsonify({
             "response": answer
@@ -340,10 +338,10 @@ def chat():
 @app.route("/")
 def home():
 
-    return "JhaGLC AI Multi-Index Backend Running"
+    return "JhaGLC AI Backend Running Successfully"
 
 # =========================================================
-# RUN
+# RUN APP
 # =========================================================
 
 if __name__ == "__main__":
